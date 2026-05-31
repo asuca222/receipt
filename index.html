@@ -616,6 +616,11 @@ function closeModal(){ document.getElementById('modal').style.display='none'; do
 // ══════════════════════════════════════════════════════
 // CSV テキスト入力
 // ══════════════════════════════════════════════════════
+
+function catOpts(sel){
+  return Object.keys(CATS).map(c=>`<option value="${c}" ${c===sel?'selected':''}>${c}</option>`).join('');
+}
+
 function openCsvModal(){
   document.getElementById('modal').style.display='flex';
   document.getElementById('modal-title').textContent='CSV形式で入力';
@@ -633,7 +638,9 @@ function openCsvModal(){
       <textarea id="csv-text" style="width:100%;min-height:180px;padding:12px 14px;border:0.5px solid var(--border-md);border-radius:var(--radius-md);font-size:13px;background:var(--bg-secondary);color:var(--text-primary);font-family:ui-monospace,monospace;resize:vertical;-webkit-appearance:none;line-height:1.5" placeholder="店名,商品名,値段,ジャンル&#10;ドン・キホーテ,牛乳,¥198,食費&#10;スーパー,パン,¥150,パン"></textarea>
     </div>
     <p id="csv-error" style="color:var(--red);font-size:12px;min-height:18px;margin-bottom:4px"></p>`;
-  document.getElementById('modal-footer').innerHTML='<div class="modal-actions"><button class="btn-cancel" onclick="closeModal()">キャンセル</button><button class="btn-save" onclick="parseCsvAndConfirm()"><i class="ti ti-check"></i> 読み込む</button></div>';
+  document.getElementById('modal-footer').innerHTML='<div class="modal-actions"><button class="btn-cancel" id="mf-cancel">キャンセル</button><button class="btn-save" id="mf-ok"><i class="ti ti-check"></i> 読み込む</button></div>';
+  document.getElementById('mf-cancel').addEventListener('click',closeModal);
+  document.getElementById('mf-ok').addEventListener('click',parseCsvAndConfirm);
 
 
 
@@ -738,7 +745,9 @@ function showCsvConfirmForm(date,byStore,parseErr){
     <div style="margin-bottom:8px">
       ${storeFormsHtml}
     </div>`;
-  document.getElementById('modal-footer').innerHTML='<div class="modal-actions"><button class="btn-cancel" onclick="openCsvModal()">戻る</button><button class="btn-save" onclick="saveCsvData()">保存して学習</button></div>';
+  document.getElementById('modal-footer').innerHTML='<div class="modal-actions"><button class="btn-cancel" id="mf-cancel">戻る</button><button class="btn-save" id="mf-ok">保存して学習</button></div>';
+  document.getElementById('mf-cancel').addEventListener('click',openCsvModal);
+  document.getElementById('mf-ok').addEventListener('click',saveCsvData);
 
 
 
@@ -801,7 +810,9 @@ function openEditReceipt(id){
 
 
     <button class="btn-delete-full" onclick="deleteReceipt(${id})"><i class="ti ti-trash"></i> このレシートを削除</button>`;
-  document.getElementById('modal-footer').innerHTML='<div class="modal-actions"><button class="btn-cancel" onclick="closeModal()">閉じる</button><button class="btn-save" onclick="saveEditReceipt('+id+')">保存して学習</button></div>';
+  document.getElementById('modal-footer').innerHTML='<div class="modal-actions"><button class="btn-cancel" id="mf-cancel">閉じる</button><button class="btn-save" id="mf-ok">保存して学習</button></div>';
+  document.getElementById('mf-cancel').addEventListener('click',closeModal);
+  document.getElementById('mf-ok').addEventListener('click',()=>saveEditReceipt(id));
 
   document.getElementById('edit-items-list').addEventListener('change',()=>{
     const total=syncEditFromDOM(id);
