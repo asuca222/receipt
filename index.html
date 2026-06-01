@@ -350,15 +350,14 @@ function todayStr() {
   const d=new Date();
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 }
-function itemTaxed(item, taxRate){
-  // item.taxが保存済みならそちらを優先、なければtaxRateを使用
-  // tax=0は「なし」= 税額0（金額そのまま）
-  const rate = item.tax ?? taxRate ?? 10;
+function itemTaxed(item){
+  // item.taxのみで計算。0=「なし」は金額そのまま
+  const rate = item.tax ?? 10;
   if(rate===0) return item.amount;
   return Math.floor(item.amount * (1 + rate/100));
 }
 function receiptTotal(r){
-  return r.items.reduce((s,i)=>s+itemTaxed(i, r.taxRate), 0);
+  return r.items.reduce((s,i)=>s+itemTaxed(i), 0);
 }
 function receiptPretaxTotal(r){
   return r.items.reduce((s,i)=>s+i.amount, 0);
@@ -604,7 +603,6 @@ function renderReceipts(cnt,rs,total){
 }
 
 function receiptGroupHtml(r){
-  const taxRate=r.taxRate||10;
   const pretax=receiptPretaxTotal(r);
   const total=receiptTotal(r);
   const cats=[...new Set(r.items.map(i=>i.category))];
@@ -615,7 +613,7 @@ function receiptGroupHtml(r){
   const learnedCount=r.items.filter(i=>i.learned).length;
   const itemRows=r.items.map(item=>{
     const c=CATS[item.category]||CATS['その他'];
-    const itemRate=item.tax??taxRate;
+    const itemRate=item.tax??10;
     const taxed=Math.round(item.amount*(1+itemRate/100));
     return `<div class="receipt-item">
       <div class="item-cat-dot" style="background:${c.color}"></div>
@@ -630,7 +628,7 @@ function receiptGroupHtml(r){
     <div class="receipt-header" onclick="toggleGroup(${r.id})">
       <div class="receipt-store-icon"><i class="ti ti-receipt" aria-hidden="true"></i></div>
       <div class="receipt-info">
-        <div class="receipt-store">${r.store} <span class="tax-tag-${taxRate===0?0:taxRate}">${taxRate===0?'なし':taxRate+'%'}</span></div>
+        <div class="receipt-store">${r.store}</div>
         <div class="receipt-meta"><span>${r.date}</span><span>·</span><span>${r.items.length}点</span>${learnedCount>0?`<span>·</span><span style="color:var(--green);font-size:11px">学習${learnedCount}件適用</span>`:''}</div>
         <div class="cat-badges">${badges}</div>
       </div>
@@ -643,7 +641,7 @@ function receiptGroupHtml(r){
     <div class="receipt-items">
       ${itemRows}
       <div class="receipt-footer">
-        <div style="font-size:12px;color:var(--text-secondary)">税抜 ${fmt(pretax)} + 消費税${taxRate}%</div>
+        <div style="font-size:12px;color:var(--text-secondary)">税抜 ${fmt(pretax)}</div>
         <div class="receipt-footer-total">税込合計 <strong>${fmt(total)}</strong></div>
         <div class="receipt-actions">
           <button class="btn-icon" onclick="openEditReceipt(${r.id})"><i class="ti ti-edit"></i> 編集</button>
@@ -673,7 +671,7 @@ function catOpts(sel){
 }
 
 function openCsvModal(){
-  _csvByStore={};_csvDate='';_csvTaxRates={};_csvStores=[];
+  _csvByStore={};_csvDate='';_csvStores=[];
   document.getElementById('modal').style.display='flex';
   document.getElementById('modal-title').textContent='CSV入力';
   document.getElementById('modal-body').innerHTML=`
@@ -756,31 +754,20 @@ function parseCsvAndConfirm(){
 function showCsvConfirmForm(date,byStore,parseErr){
   const stores=Object.keys(byStore);
   _csvStores=stores;
-  const grandPretax=Object.values(byStore).flat().reduce((s,i)=>s+i.amount,0);
-  // 店舗ごとの税率（初回はデフォルト、以降は_csvTaxRatesから）
-  stores.forEach(st=>{ if(!_csvTaxRates[st]) _csvTaxRates[st]=10; });
-  const grandTaxed=stores.reduce((s,st)=>{
-    const rate=_csvTaxRates[st];
-    return s+byStore[st].reduce((ss,i)=>ss+((rate===0)?i.amount:Math.floor(i.amount*(1+rate/100))),0);
-  },0);
+  // 合計はitem.taxのみで計算
+  const grandTaxed=Object.values(byStore).flat().reduce((s,i)=>s+itemTaxed(i),0);
 
   let storeFormsHtml=stores.map((store,si)=>{
     const items=byStore[store];
-    const pretax=items.reduce((s,i)=>s+i.amount,0);
-    const rate=_csvTaxRates[store];
-    const taxed=items.reduce((s,i)=>{ const r=i.tax??rate; return s+(r===0?i.amount:Math.floor(i.amount*(1+r/100))); },0);
-    return `<div class="receipt-group" style="margin-bottom:10px" id="csv-sg-${si}">
+    const taxed=items.reduce((s,i)=>s+itemTaxed(i),0);
+    return `<div class="receipt-group" style="margin-bottom:10px">
       <div style="display:flex;gap:8px;padding:10px 14px;background:var(--bg-secondary);border-radius:var(--radius-md) var(--radius-md) 0 0;align-items:center;border:0.5px solid var(--border);border-bottom:none">
         <div style="flex:1;font-size:15px;font-weight:600;color:var(--text-primary)">${store}</div>
-        <button class="tax-toggle tax-${rate===0?0:rate}" data-si="${si}" data-store="${store}" onclick="toggleTaxRate(this)">${rate===0?'なし':rate+'%'}</button>
-        <div style="text-align:right">
-          <div style="font-size:12px;color:var(--text-secondary)">税抜 ${fmt(pretax)}</div>
-          <div style="font-size:15px;font-weight:700;color:var(--text-primary)" id="csv-taxed-${si}">税込 ${fmt(taxed)}</div>
-        </div>
+        <div style="font-size:15px;font-weight:700;color:var(--text-primary)">税込 ${fmt(taxed)}</div>
       </div>
       <div id="csv-store-${si}" style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:var(--bg-primary);border:0.5px solid var(--border);border-top:none;border-radius:0 0 var(--radius-md) var(--radius-md)">
         ${items.map((item,ii)=>{
-          const irate=item.tax??rate; const taxLabel=`<span class="tax-tag-${irate===0?0:irate}">${irate===0?'なし':irate+'%'}</span>`;
+          const t=item.tax??10;
           return `<div class="edit-item-row" data-cstore="${si}" data-citem="${ii}">
             <div style="display:flex;gap:8px;align-items:center">
               <input class="c-name" value="${item.name}" placeholder="商品名" style="flex:1">
@@ -789,11 +776,10 @@ function showCsvConfirmForm(date,byStore,parseErr){
             <div style="display:flex;gap:8px;align-items:center">
               <select class="c-cat" style="flex:1" onchange="onCsvCatChange(this,${si},'${store}')">${catOpts(item.category)}</select>
               <input class="c-amt" type="number" value="${item.amount}" inputmode="numeric" style="width:80px;text-align:right">
-              ${taxLabel}
+              <button class="tax-toggle tax-${t===0?0:t} c-tax" data-tax="${t}" onclick="toggleCsvItemTax(this,${si},'${store}')">${t===0?'なし':t+'%'}</button>
             </div>
           </div>`;
         }).join('')}
-        <button class="btn-add-item" onclick="addCsvItem('${store}',${si})"><i class="ti ti-plus"></i> 商品を追加</button>
       </div>
     </div>`;
   }).join('');
@@ -808,7 +794,7 @@ function showCsvConfirmForm(date,byStore,parseErr){
     <div style="margin-bottom:8px">${storeFormsHtml}</div>`;
   document.getElementById('modal-footer').innerHTML='<div class="modal-actions"><button class="btn-cancel" id="mf-cancel"><i class="ti ti-plus"></i> 商品を追加</button><button class="btn-save" id="mf-ok">保存して学習</button></div>';
   document.getElementById('mf-cancel').addEventListener('click', backToInput);
-  document.getElementById('mf-ok').addEventListener('click',saveCsvData);
+  document.getElementById('mf-ok').addEventListener('click', saveCsvData);
 }
 
 function backToInput(){
@@ -820,20 +806,26 @@ function backToInput(){
   if(stores.length>0) document.getElementById('csv-store').value=stores[stores.length-1];
 }
 
-function toggleTaxRate(btn){
-  const store=btn.dataset.store;
-  const si=btn.dataset.si;
-  const current=_csvTaxRates[store]??10;
-  const next=current===10?8:current===8?0:10;
-  _csvTaxRates[store]=next;
-  btn.textContent=next===0?'なし':next+'%';
-  btn.className='tax-toggle tax-'+(next===0?'0':next);
-  // 税込合計を再計算
-  const items=_csvByStore[store];
-  const taxed=items.reduce((s,i)=>{ const r=i.tax??next; return s+(r===0?i.amount:Math.floor(i.amount*(1+r/100))); },0);
-  document.getElementById('csv-taxed-'+si).textContent='税込 '+fmt(taxed);
-  // サマリーも更新
+function toggleCsvItemTax(btn, si, store){
+  const cur = parseInt(btn.dataset.tax);
+  const next = cur===10?8:cur===8?0:10;
+  btn.dataset.tax = next;
+  btn.textContent = next===0?'なし':next+'%';
+  btn.className = 'tax-toggle tax-'+(next===0?0:next)+' c-tax';
+  // _csvByStoreのitem.taxを更新
+  const row = btn.closest('.edit-item-row');
+  const ii = parseInt(row.dataset.citem);
+  if(_csvByStore[store]?.[ii]) _csvByStore[store][ii].tax = next;
   updateCsvSummary();
+}
+
+function updateCsvSummary(){
+  const grandTaxed = Object.values(_csvByStore).flat().reduce((s,i)=>s+itemTaxed(i),0);
+  const note = document.querySelector('.db-note');
+  if(note){
+    const total = Object.values(_csvByStore).flat().length;
+    note.innerHTML=`<i class="ti ti-sparkles"></i> ${Object.keys(_csvByStore).length}店舗・${total}品目 税込合計 ${fmt(grandTaxed)}`;
+  }
 }
 
 function onCsvCatChange(sel, si, store){
@@ -867,7 +859,6 @@ function updateCsvSummary(){
 let _csvStores=[];
 let _csvByStore={};
 let _csvDate='';
-let _csvTaxRates={};
 function saveCsvData(){
   const stores=_csvStores;
   const date=document.getElementById('csv-final-date').value||todayStr();
@@ -884,14 +875,13 @@ function saveCsvData(){
       if(amount>0) items.push({id:Date.now()+Math.random(),name,amount,category,tax,learned:false});
     });
     if(!items.length) return;
-    const taxRate=_csvTaxRates[store]||10;
     learnFromItems(store,items);
-    receipts.push({id:Date.now()+saved,date,store,items,taxRate});
+    receipts.push({id:Date.now()+saved,date,store,items});
     saved++;
   });
   if(!saved){alert('保存できるデータがありません');return;}
   // リセット
-  _csvByStore={};_csvDate='';_csvTaxRates={};_csvStores=[];
+  _csvByStore={};_csvDate='';_csvStores=[];
   save();
   closeModal();
   currentDate=new Date(date+'T00:00:00');
@@ -905,7 +895,6 @@ function openEditReceipt(id){
   if(!r) return;
   document.getElementById('modal').style.display='flex';
   document.getElementById('modal-title').textContent='レシートを編集';
-  const taxRate=r.taxRate||10;
   document.getElementById('modal-body').innerHTML=`
     <div class="result-section" style="margin-bottom:14px">
       <div style="display:flex;gap:10px">
@@ -918,7 +907,7 @@ function openEditReceipt(id){
       <button onclick="addEditItem(${id})" style="background:none;border:none;color:#007aff;font-size:13px;cursor:pointer;font-family:inherit"><i class="ti ti-plus"></i> 追加</button>
     </div>
     <div id="edit-items-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
-      ${r.items.map(item=>editItemRow(item,taxRate)).join('')}
+      ${r.items.map(item=>editItemRow(item)).join('')}
     </div>
     <div style="background:var(--bg-secondary);border-radius:var(--radius-md);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <span style="font-size:14px;color:var(--text-secondary);font-weight:500">税込合計</span>
@@ -1003,11 +992,11 @@ function addEditItem(rid){
   syncEditFromDOM(rid);
   const r=receipts.find(x=>x.id===rid);
   if(!r) return;
-  const newItem={id:'new_'+Date.now(),name:'',amount:0,category:'その他',tax:r.taxRate||10,learned:false};
+  const newItem={id:'new_'+Date.now(),name:'',amount:0,category:'その他',tax:10,learned:false};
   r.items.push(newItem);
   const list=document.getElementById('edit-items-list');
   const div=document.createElement('div');
-  div.innerHTML=editItemRow(newItem, r.taxRate||10);
+  div.innerHTML=editItemRow(newItem);
   list.appendChild(div.firstElementChild);
 }
 
