@@ -306,40 +306,7 @@ if (!receipts) {
   const y = now.getFullYear(), m = now.getMonth()+1;
   const pm = m===1?12:m-1, py = m===1?y-1:y;
   const p = n => String(n).padStart(2,'0');
-  receipts = [
-    { id:1, date:`${y}-${p(m)}-03`, store:'スーパーマルエツ', items:[
-      {id:101,name:'牛乳',amount:198,category:'食費',learned:false},
-      {id:102,name:'食パン',amount:148,category:'食費',learned:false},
-      {id:103,name:'シャンプー',amount:680,category:'日用品',learned:false},
-      {id:104,name:'バンドエイド',amount:320,category:'薬',learned:false},
-      {id:105,name:'鶏もも肉',amount:480,category:'食費',learned:false},
-    ]},
-    { id:2, date:`${y}-${p(m)}-05`, store:'サイゼリヤ', items:[
-      {id:201,name:'ランチセット',amount:850,category:'外食',learned:false},
-      {id:202,name:'ドリンクバー',amount:220,category:'外食',learned:false},
-    ]},
-    { id:3, date:`${y}-${p(m)}-07`, store:'マツモトキヨシ', items:[
-      {id:301,name:'ロキソニン',amount:980,category:'薬',learned:false},
-      {id:302,name:'ビタミンC',amount:680,category:'薬',learned:false},
-      {id:303,name:'歯ブラシ',amount:220,category:'日用品',learned:false},
-    ]},
-    { id:4, date:`${y}-${p(m)}-10`, store:'ユニクロ', items:[
-      {id:401,name:'Tシャツ',amount:1990,category:'衣類',learned:false},
-      {id:402,name:'ジーンズ',amount:3990,category:'衣類',learned:false},
-      {id:403,name:'靴下3足組',amount:790,category:'衣類',learned:false},
-    ]},
-    { id:5, date:`${y}-${p(m)}-20`, store:'Suicaチャージ', items:[
-      {id:501,name:'ICカードチャージ',amount:3000,category:'交通',learned:false},
-    ]},
-    { id:6, date:`${py}-${p(pm)}-10`, store:'コストコ', items:[
-      {id:601,name:'鶏胸肉2kg',amount:1280,category:'食費',learned:false},
-      {id:602,name:'トイレットペーパー',amount:1580,category:'日用品',learned:false},
-      {id:603,name:'洗濯洗剤',amount:1480,category:'日用品',learned:false},
-      {id:604,name:'ナッツ缶',amount:2180,category:'食費',learned:false},
-    ]},
-  ];
-  // サンプルデータで学習DBを初期化
-  receipts.forEach(r => learnFromItems(r.store, r.items));
+  receipts = [];
   save();
 }
 
@@ -739,12 +706,6 @@ function parseCsvAndConfirm(){
   const stores=Object.keys(byStore);
   if(!stores.length){errEl.textContent='有効なデータが見つかりませんでした';return;}
 
-  // 店舗ごとのデフォルト税率（品目の税率の最頻値）
-  stores.forEach(st=>{
-    const taxes=byStore[st].map(i=>i.tax);
-    _csvTaxRates[st]=taxes.filter(t=>t===10).length>=taxes.filter(t=>t===8).length?10:8;
-  });
-
   _csvByStore=byStore;
   _csvDate=date;
   showCsvConfirmForm(date,byStore,parseErr);
@@ -763,7 +724,7 @@ function showCsvConfirmForm(date,byStore,parseErr){
     return `<div class="receipt-group" style="margin-bottom:10px">
       <div style="display:flex;gap:8px;padding:10px 14px;background:var(--bg-secondary);border-radius:var(--radius-md) var(--radius-md) 0 0;align-items:center;border:0.5px solid var(--border);border-bottom:none">
         <div style="flex:1;font-size:15px;font-weight:600;color:var(--text-primary)">${store}</div>
-        <div style="font-size:15px;font-weight:700;color:var(--text-primary)">税込 ${fmt(taxed)}</div>
+        <div class="store-taxed-total" style="font-size:15px;font-weight:700;color:var(--text-primary)">税込 ${fmt(taxed)}</div>
       </div>
       <div id="csv-store-${si}" style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:var(--bg-primary);border:0.5px solid var(--border);border-top:none;border-radius:0 0 var(--radius-md) var(--radius-md)">
         ${items.map((item,ii)=>{
@@ -816,15 +777,44 @@ function toggleCsvItemTax(btn, si, store){
   const row = btn.closest('.edit-item-row');
   const ii = parseInt(row.dataset.citem);
   if(_csvByStore[store]?.[ii]) _csvByStore[store][ii].tax = next;
+  // 店舗合計をDOMから再計算して更新
+  updateStoreTaxed(si, store);
   updateCsvSummary();
 }
 
+function updateStoreTaxed(si, store){
+  // 店舗内の全ボタンからdata-taxとinput[c-amt]を読んで合計を算出
+  const storeEl = document.getElementById('csv-store-'+si);
+  if(!storeEl) return;
+  let taxed = 0;
+  storeEl.querySelectorAll('.edit-item-row').forEach(row=>{
+    const amt = parseInt(row.querySelector('.c-amt').value)||0;
+    const tax = parseInt(row.querySelector('.c-tax').dataset.tax);
+    taxed += (tax===0 ? amt : Math.floor(amt*(1+tax/100)));
+  });
+  // 店舗ヘッダーの合計表示を更新（親要素のreceipt-groupの最初のdivの最後の子）
+  const header = storeEl.previousElementSibling;
+  if(header){
+    const totalEl = header.querySelector('.store-taxed-total');
+    if(totalEl) totalEl.textContent = '税込 '+fmt(taxed);
+  }
+}
+
 function updateCsvSummary(){
-  const grandTaxed = Object.values(_csvByStore).flat().reduce((s,i)=>s+itemTaxed(i),0);
+  // DOMから直接再計算（_csvByStoreより確実）
+  let grandTaxed = 0;
+  document.querySelectorAll('#csv-store-0, [id^="csv-store-"]').forEach(storeEl=>{
+    storeEl.querySelectorAll('.edit-item-row').forEach(row=>{
+      const amt = parseInt(row.querySelector('.c-amt')?.value)||0;
+      const tax = parseInt(row.querySelector('.c-tax')?.dataset.tax??10);
+      grandTaxed += (tax===0 ? amt : Math.floor(amt*(1+tax/100)));
+    });
+  });
   const note = document.querySelector('.db-note');
   if(note){
-    const total = Object.values(_csvByStore).flat().length;
-    note.innerHTML=`<i class="ti ti-sparkles"></i> ${Object.keys(_csvByStore).length}店舗・${total}品目 税込合計 ${fmt(grandTaxed)}`;
+    const stores = Object.keys(_csvByStore).length;
+    const items = document.querySelectorAll('[id^="csv-store-"] .edit-item-row').length;
+    note.innerHTML=`<i class="ti ti-sparkles"></i> ${stores}店舗・${items}品目 税込合計 ${fmt(grandTaxed)}`;
   }
 }
 
@@ -844,21 +834,7 @@ function addCsvItem(store, si){
   document.getElementById('csv-store').value=store;
 }
 
-function updateCsvSummary(){
-  const grandTaxed=Object.keys(_csvByStore).reduce((s,st)=>{
-    const rate=_csvTaxRates[st]||10;
-    return s+_csvByStore[st].reduce((ss,i)=>{ const r=i.tax??rate; return ss+(r===0?i.amount:Math.floor(i.amount*(1+r/100))); },0);
-  },0);
-  const note=document.querySelector('.db-note');
-  if(note){
-    const total=Object.values(_csvByStore).flat().length;
-    note.innerHTML=`<i class="ti ti-sparkles"></i> ${Object.keys(_csvByStore).length}店舗・${total}品目 税込合計 ${fmt(grandTaxed)}`;
-  }
-}
 
-let _csvStores=[];
-let _csvByStore={};
-let _csvDate='';
 function saveCsvData(){
   const stores=_csvStores;
   const date=document.getElementById('csv-final-date').value||todayStr();
