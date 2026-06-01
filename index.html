@@ -157,6 +157,15 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Hiragino San
 /* learned indicator in edit row */
 .learned-tag{font-size:10px;color:var(--green);font-weight:600}
 .safe-bottom{padding-bottom:env(safe-area-inset-bottom)}
+
+.tax-tag-8{font-size:10px;padding:2px 5px;background:#e8f5e9;color:#2e7d32;border-radius:8px;white-space:nowrap;font-weight:600}
+.tax-tag-10{font-size:10px;padding:2px 5px;background:#fff3e0;color:#e65100;border-radius:8px;white-space:nowrap;font-weight:600}
+.tax-tag-0{font-size:10px;padding:2px 5px;background:#f0f0f0;color:#888;border-radius:8px;white-space:nowrap;font-weight:600}
+.tax-toggle{border:none;border-radius:12px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;-webkit-appearance:none}
+.tax-toggle.tax-8{background:#e8f5e9;color:#2e7d32}
+.tax-toggle.tax-10{background:#fff3e0;color:#e65100}
+.tax-toggle.tax-0{background:#f0f0f0;color:#888}
+.btn-add-item{width:100%;margin-top:4px;padding:8px;border:1px dashed var(--border-md);border-radius:var(--radius-md);background:none;color:var(--text-secondary);font-size:13px;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px}
 </style>
 </head>
 <body>
@@ -343,8 +352,10 @@ function todayStr() {
 }
 function itemTaxed(item, taxRate){
   // item.taxが保存済みならそちらを優先、なければtaxRateを使用
+  // tax=0は「なし」= 税額0（金額そのまま）
   const rate = item.tax ?? taxRate ?? 10;
-  return Math.round(item.amount * (1 + rate/100));
+  if(rate===0) return item.amount;
+  return Math.floor(item.amount * (1 + rate/100));
 }
 function receiptTotal(r){
   return r.items.reduce((s,i)=>s+itemTaxed(i, r.taxRate), 0);
@@ -610,7 +621,7 @@ function receiptGroupHtml(r){
       <div class="item-cat-dot" style="background:${c.color}"></div>
       <span class="item-name">${item.name}</span>
       ${item.learned?'<span class="learned-badge">学習済</span>':''}
-      <span class="${itemRate===8?'tax-tag-8':'tax-tag-10'}">${itemRate}%</span>
+      <span class="tax-tag-${itemRate===0?0:itemRate}">${itemRate===0?'なし':itemRate+'%'}</span>
       <span class="item-cat-label">${item.category}</span>
       <span class="item-amount">${fmt(taxed)}</span>
     </div>`;
@@ -619,7 +630,7 @@ function receiptGroupHtml(r){
     <div class="receipt-header" onclick="toggleGroup(${r.id})">
       <div class="receipt-store-icon"><i class="ti ti-receipt" aria-hidden="true"></i></div>
       <div class="receipt-info">
-        <div class="receipt-store">${r.store} <span class="${taxRate===8?'tax-tag-8':'tax-tag-10'}">${taxRate}%</span></div>
+        <div class="receipt-store">${r.store} <span class="tax-tag-${taxRate===0?0:taxRate}">${taxRate===0?'なし':taxRate+'%'}</span></div>
         <div class="receipt-meta"><span>${r.date}</span><span>·</span><span>${r.items.length}点</span>${learnedCount>0?`<span>·</span><span style="color:var(--green);font-size:11px">学習${learnedCount}件適用</span>`:''}</div>
         <div class="cat-badges">${badges}</div>
       </div>
@@ -750,18 +761,18 @@ function showCsvConfirmForm(date,byStore,parseErr){
   stores.forEach(st=>{ if(!_csvTaxRates[st]) _csvTaxRates[st]=10; });
   const grandTaxed=stores.reduce((s,st)=>{
     const rate=_csvTaxRates[st];
-    return s+byStore[st].reduce((ss,i)=>ss+Math.round(i.amount*(1+rate/100)),0);
+    return s+byStore[st].reduce((ss,i)=>ss+((rate===0)?i.amount:Math.floor(i.amount*(1+rate/100))),0);
   },0);
 
   let storeFormsHtml=stores.map((store,si)=>{
     const items=byStore[store];
     const pretax=items.reduce((s,i)=>s+i.amount,0);
     const rate=_csvTaxRates[store];
-    const taxed=items.reduce((s,i)=>s+Math.round(i.amount*(1+(i.tax??rate)/100)),0);
+    const taxed=items.reduce((s,i)=>{ const r=i.tax??rate; return s+(r===0?i.amount:Math.floor(i.amount*(1+r/100))); },0);
     return `<div class="receipt-group" style="margin-bottom:10px" id="csv-sg-${si}">
       <div style="display:flex;gap:8px;padding:10px 14px;background:var(--bg-secondary);border-radius:var(--radius-md) var(--radius-md) 0 0;align-items:center;border:0.5px solid var(--border);border-bottom:none">
         <div style="flex:1;font-size:15px;font-weight:600;color:var(--text-primary)">${store}</div>
-        <button class="tax-toggle ${rate===8?'tax-8':'tax-10'}" data-si="${si}" data-store="${store}" onclick="toggleTaxRate(this)">${rate}%</button>
+        <button class="tax-toggle tax-${rate===0?0:rate}" data-si="${si}" data-store="${store}" onclick="toggleTaxRate(this)">${rate===0?'なし':rate+'%'}</button>
         <div style="text-align:right">
           <div style="font-size:12px;color:var(--text-secondary)">税抜 ${fmt(pretax)}</div>
           <div style="font-size:15px;font-weight:700;color:var(--text-primary)" id="csv-taxed-${si}">税込 ${fmt(taxed)}</div>
@@ -769,7 +780,7 @@ function showCsvConfirmForm(date,byStore,parseErr){
       </div>
       <div id="csv-store-${si}" style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:var(--bg-primary);border:0.5px solid var(--border);border-top:none;border-radius:0 0 var(--radius-md) var(--radius-md)">
         ${items.map((item,ii)=>{
-          const taxLabel=`<span class="${(item.tax??rate)===8?'tax-tag-8':'tax-tag-10'}">${item.tax??rate}%</span>`;
+          const irate=item.tax??rate; const taxLabel=`<span class="tax-tag-${irate===0?0:irate}">${irate===0?'なし':irate+'%'}</span>`;
           return `<div class="edit-item-row" data-cstore="${si}" data-citem="${ii}">
             <div style="display:flex;gap:8px;align-items:center">
               <input class="c-name" value="${item.name}" placeholder="商品名" style="flex:1">
@@ -812,14 +823,14 @@ function backToInput(){
 function toggleTaxRate(btn){
   const store=btn.dataset.store;
   const si=btn.dataset.si;
-  const current=_csvTaxRates[store]||10;
-  const next=current===10?8:10;
+  const current=_csvTaxRates[store]??10;
+  const next=current===10?8:current===8?0:10;
   _csvTaxRates[store]=next;
-  btn.textContent=next+'%';
-  btn.className='tax-toggle '+(next===8?'tax-8':'tax-10');
+  btn.textContent=next===0?'なし':next+'%';
+  btn.className='tax-toggle tax-'+(next===0?'0':next);
   // 税込合計を再計算
   const items=_csvByStore[store];
-  const taxed=items.reduce((s,i)=>s+Math.round(i.amount*(1+(i.tax??next)/100)),0);
+  const taxed=items.reduce((s,i)=>{ const r=i.tax??next; return s+(r===0?i.amount:Math.floor(i.amount*(1+r/100))); },0);
   document.getElementById('csv-taxed-'+si).textContent='税込 '+fmt(taxed);
   // サマリーも更新
   updateCsvSummary();
@@ -844,7 +855,7 @@ function addCsvItem(store, si){
 function updateCsvSummary(){
   const grandTaxed=Object.keys(_csvByStore).reduce((s,st)=>{
     const rate=_csvTaxRates[st]||10;
-    return s+_csvByStore[st].reduce((ss,i)=>ss+Math.round(i.amount*(1+(i.tax??rate)/100)),0);
+    return s+_csvByStore[st].reduce((ss,i)=>{ const r=i.tax??rate; return ss+(r===0?i.amount:Math.floor(i.amount*(1+r/100))); },0);
   },0);
   const note=document.querySelector('.db-note');
   if(note){
@@ -933,17 +944,17 @@ function editItemRow(item, defaultRate){
     <div style="display:flex;gap:8px;align-items:center">
       <select class="e-cat" style="flex:1" onchange="onEditCatChange(this)">${catOpts(item.category)}</select>
       <input class="e-amt" type="number" value="${item.amount}" inputmode="numeric" style="width:80px;text-align:right">
-      <button class="tax-toggle ${tax===8?'tax-8':'tax-10'} e-tax" data-tax="${tax}" onclick="toggleEditItemTax(this)">${tax}%</button>
+      <button class="tax-toggle tax-${tax===0?0:tax} e-tax" data-tax="${tax}" onclick="toggleEditItemTax(this)">${tax===0?'なし':tax+'%'}</button>
     </div>
   </div>`;
 }
 
 function toggleEditItemTax(btn){
-  const cur=parseInt(btn.dataset.tax)||10;
-  const next=cur===10?8:10;
+  const cur=parseInt(btn.dataset.tax);
+  const next=cur===10?8:cur===8?0:10;
   btn.dataset.tax=next;
-  btn.textContent=next+'%';
-  btn.className='tax-toggle '+(next===8?'tax-8':'tax-10')+' e-tax';
+  btn.textContent=next===0?'なし':next+'%';
+  btn.className='tax-toggle tax-'+(next===0?0:next)+' e-tax';
   updateEditTotal();
 }
 
@@ -965,7 +976,7 @@ function updateEditTotal(){
   rows.forEach(row=>{
     const amt=parseInt(row.querySelector('.e-amt').value)||0;
     const tax=parseInt(row.querySelector('.e-tax').dataset.tax)||10;
-    total+=Math.round(amt*(1+tax/100));
+    total+=(tax===0?amt:Math.floor(amt*(1+tax/100)));
   });
   const el=document.getElementById('edit-total');
   if(el) el.textContent=fmt(total);
