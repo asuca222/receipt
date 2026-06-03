@@ -318,13 +318,22 @@ function todayStr() {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 }
 function itemTaxed(item){
-  // item.taxのみで計算。0=「なし」は金額そのまま
+  // 個別表示用（確認フォームの合計概算など）
   const rate = item.tax ?? 10;
   if(rate===0) return item.amount;
   return Math.floor(item.amount * (1 + rate/100));
 }
 function receiptTotal(r){
-  return r.items.reduce((s,i)=>s+itemTaxed(i), 0);
+  // 同一税率ごとに小計を出してからfloor（商品ごとfloorによる端数誤差を防ぐ）
+  const groups = {};
+  r.items.forEach(i => {
+    const rate = i.tax ?? 10;
+    groups[rate] = (groups[rate] || 0) + i.amount;
+  });
+  return Object.entries(groups).reduce((s, [rate, subtotal]) => {
+    const r = Number(rate);
+    return s + (r === 0 ? subtotal : Math.floor(subtotal * (1 + r/100)));
+  }, 0);
 }
 function receiptPretaxTotal(r){
   return r.items.reduce((s,i)=>s+i.amount, 0);
@@ -716,11 +725,12 @@ function showCsvConfirmForm(date,byStore,parseErr){
   const stores=Object.keys(byStore);
   _csvStores=stores;
   // 合計はitem.taxのみで計算
-  const grandTaxed=Object.values(byStore).flat().reduce((s,i)=>s+itemTaxed(i),0);
+  const allItems=Object.values(byStore).flat();
+  const grandTaxed=Object.entries(allItems.reduce((g,i)=>{const r=i.tax??10;g[r]=(g[r]||0)+i.amount;return g;},{})).reduce((s,[r,sub])=>{const n=Number(r);return s+(n===0?sub:Math.floor(sub*(1+n/100)));},0);
 
   let storeFormsHtml=stores.map((store,si)=>{
     const items=byStore[store];
-    const taxed=items.reduce((s,i)=>s+itemTaxed(i),0);
+    const taxed=Object.entries(items.reduce((g,i)=>{const r=i.tax??10;g[r]=(g[r]||0)+i.amount;return g;},{})).reduce((s,[r,sub])=>{const n=Number(r);return s+(n===0?sub:Math.floor(sub*(1+n/100)));},0);
     return `<div class="receipt-group" style="margin-bottom:10px">
       <div style="display:flex;gap:8px;padding:10px 14px;background:var(--bg-secondary);border-radius:var(--radius-md) var(--radius-md) 0 0;align-items:center;border:0.5px solid var(--border);border-bottom:none">
         <div style="flex:1;font-size:15px;font-weight:600;color:var(--text-primary)">${store}</div>
@@ -783,15 +793,19 @@ function toggleCsvItemTax(btn, si, store){
 }
 
 function updateStoreTaxed(si, store){
-  // 店舗内の全ボタンからdata-taxとinput[c-amt]を読んで合計を算出
   const storeEl = document.getElementById('csv-store-'+si);
   if(!storeEl) return;
-  let taxed = 0;
+  // 同一税率ごとにまとめてfloor
+  const groups = {};
   storeEl.querySelectorAll('.edit-item-row').forEach(row=>{
     const amt = parseInt(row.querySelector('.c-amt').value)||0;
     const tax = parseInt(row.querySelector('.c-tax').dataset.tax);
-    taxed += (tax===0 ? amt : Math.floor(amt*(1+tax/100)));
+    groups[tax] = (groups[tax]||0) + amt;
   });
+  let taxed = Object.entries(groups).reduce((s,[rate,sub])=>{
+    const r=Number(rate);
+    return s+(r===0?sub:Math.floor(sub*(1+r/100)));
+  },0);
   // 店舗ヘッダーの合計表示を更新（親要素のreceipt-groupの最初のdivの最後の子）
   const header = storeEl.previousElementSibling;
   if(header){
@@ -801,14 +815,19 @@ function updateStoreTaxed(si, store){
 }
 
 function updateCsvSummary(){
-  // DOMから直接再計算（_csvByStoreより確実）
+  // 店舗ごと・税率ごとにまとめてfloor
   let grandTaxed = 0;
-  document.querySelectorAll('#csv-store-0, [id^="csv-store-"]').forEach(storeEl=>{
+  document.querySelectorAll('[id^="csv-store-"]').forEach(storeEl=>{
+    const groups = {};
     storeEl.querySelectorAll('.edit-item-row').forEach(row=>{
       const amt = parseInt(row.querySelector('.c-amt')?.value)||0;
       const tax = parseInt(row.querySelector('.c-tax')?.dataset.tax??10);
-      grandTaxed += (tax===0 ? amt : Math.floor(amt*(1+tax/100)));
+      groups[tax] = (groups[tax]||0) + amt;
     });
+    grandTaxed += Object.entries(groups).reduce((s,[rate,sub])=>{
+      const r=Number(rate);
+      return s+(r===0?sub:Math.floor(sub*(1+r/100)));
+    },0);
   });
   const note = document.querySelector('.db-note');
   if(note){
